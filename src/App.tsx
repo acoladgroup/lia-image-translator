@@ -2,7 +2,7 @@ import { ArrowRight, Check, ChevronDown, Download, Image as ImageIcon, Loader2, 
 import { AnimatePresence, motion } from 'motion/react';
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { MODELS } from './services/models';
-import { translateImage, TranslationResult } from './services/translator';
+import { detectLanguage, translateImage, TranslationResult } from './services/translator';
 
 
 const LANGUAGES = [
@@ -21,7 +21,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [fullscreenResult, setFullscreenResult] = useState<TranslationResult | null>(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  
+  const [detectedLang, setDetectedLang] = useState<string | null>(null);
+  const [isDetecting, setIsDetecting] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -59,6 +61,13 @@ export default function App() {
     setPreviewUrl(URL.createObjectURL(selectedFile));
     setResults([]);
     setError(null);
+    setDetectedLang(null);
+
+    setIsDetecting(true);
+    detectLanguage(selectedFile)
+      .then((lang) => setDetectedLang(lang))
+      .catch(() => setDetectedLang(null))
+      .finally(() => setIsDetecting(false));
   };
 
   const handleDrop = (e: DragEvent) => {
@@ -82,9 +91,11 @@ export default function App() {
     setLoadingModelIds(new Set(selectedModels.map(m => m.id)));
     setActiveTabId(selectedModels[0].id);
     
+    const resolvedLang = sourceLang === 'Auto-detect' && detectedLang ? detectedLang : sourceLang;
+
     const translationPromises = selectedModels.map(async (model) => {
       try {
-        const result = await translateImage(file, sourceLang, targetLang, model);
+        const result = await translateImage(file, resolvedLang, targetLang, model);
         setResults(prev => [...prev, result]);
       } catch (err: any) {
         setResults(prev => [...prev, {
@@ -139,16 +150,23 @@ export default function App() {
             {/* Source Configuration */}
             <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 p-4">
               <div className="flex items-center justify-between">
-                <div className="flex-1 max-w-[200px]">
+                <div className="flex-1 max-w-[250px]">
                   <label className="block text-xs font-medium text-neutral-400 mb-1.5 ml-1">Source Language</label>
-                  <select 
-                    value={sourceLang}
-                    onChange={(e) => setSourceLang(e.target.value)}
-                    className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
-                  >
-                    <option value="Auto-detect">Auto-detect</option>
-                    {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
-                  </select>
+                  <div className="relative">
+                    <select 
+                      value={sourceLang}
+                      onChange={(e) => setSourceLang(e.target.value)}
+                      className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
+                    >
+                      <option value="Auto-detect">
+                        {isDetecting ? 'Detecting...' : detectedLang && sourceLang === 'Auto-detect' ? `Auto-detect (${detectedLang})` : 'Auto-detect'}
+                      </option>
+                      {LANGUAGES.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                    </select>
+                    {isDetecting && (
+                      <Loader2 size={14} className="absolute right-8 top-1/2 -translate-y-1/2 animate-spin text-indigo-400" />
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -159,7 +177,7 @@ export default function App() {
                 <h2 className="text-sm font-semibold text-neutral-700">Source Image</h2>
                 {file && (
                   <button 
-                    onClick={() => { setFile(null); setPreviewUrl(null); setResults([]); }}
+                    onClick={() => { setFile(null); setPreviewUrl(null); setResults([]); setDetectedLang(null); }}
                     className="text-neutral-400 hover:text-neutral-600 p-1 rounded-md hover:bg-neutral-200 transition-colors"
                   >
                     <X size={16} />
@@ -271,7 +289,7 @@ export default function App() {
 
                 <button 
                   onClick={handleTranslate}
-                  disabled={!file || isTranslating || selectedModelIds.length === 0}
+                  disabled={!file || isTranslating || isDetecting || selectedModelIds.length === 0}
                   className="px-6 py-2 h-[42px] bg-indigo-600 hover:bg-indigo-700 disabled:bg-neutral-200 disabled:text-neutral-400 text-white rounded-xl font-semibold flex items-center gap-2 transition-all min-w-[120px] justify-center"
                 >
                   {isTranslating ? (
@@ -311,8 +329,10 @@ export default function App() {
                         {!isLoading && result?.error && <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>}
                         <span className="flex flex-col items-start gap-px">
                           <span>{model.name}</span>
-                          {result && !result.error && (result.cost || result.usage) && (
+                          {result && !result.error && (result.cost || result.usage || result.detectedLang) && (
                              <span className={`text-[10px] font-normal tracking-wide ${activeTabId === model.id ? 'text-indigo-400' : 'text-neutral-400'}`}>
+                               {result.detectedLang && `${result.detectedLang}`}
+                               {result.detectedLang && (result.cost || result.usage) && ' · '}
                                {result.cost && (result.cost === 'Free tier' ? 'Free tier' : `$${result.cost}`)}
                                {result.usage && ` · ${result.usage.totalTokens.toLocaleString()} tok`}
                              </span>

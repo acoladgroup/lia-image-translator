@@ -5,10 +5,9 @@
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "vite",
-    "dev:server": "tsx server.ts",
+    "dev": "NODE_ENV=development tsx server.ts",
     "build": "vite build",
-    "start": "node --import tsx server.ts",
+    "start": "NODE_ENV=production node --import tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

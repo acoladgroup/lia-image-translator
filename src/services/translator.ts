@@ -2,29 +2,47 @@ import { Model, TranslationResult } from './models';
 
 export type { TranslationResult };
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function detectLanguage(file: File): Promise<string> {
+  const base64Data = await fileToBase64(file);
+
+  const response = await fetch('/api/detect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base64Data, mimeType: file.type }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Language detection failed');
+  }
+
+  const data = await response.json();
+  return data.language || 'Unknown';
+}
+
 export async function translateImage(
-  file: File, 
-  sourceLang: string, 
+  file: File,
+  sourceLang: string,
   targetLang: string,
   model: Model
 ): Promise<TranslationResult> {
   try {
-    const base64Data = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64 = result.split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+    const base64Data = await fileToBase64(file);
 
     const response = await fetch('/api/translate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         base64Data,
         mimeType: file.type,
@@ -41,7 +59,7 @@ export async function translateImage(
     }
 
     const responseData = await response.json();
-    
+
     if (!responseData.imageUrl) {
       throw new Error('No image returned from the backend.');
     }
@@ -53,6 +71,7 @@ export async function translateImage(
       type: 'image',
       cost: responseData.cost,
       usage: responseData.usage,
+      detectedLang: responseData.detectedLang,
     };
 
   } catch (err: any) {
@@ -61,9 +80,7 @@ export async function translateImage(
       modelName: model.name,
       content: '',
       type: 'image',
-      error: err.message || 'Failed to translate image.'
+      error: err.message || 'Failed to translate image.',
     };
   }
 }
-
-

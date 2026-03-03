@@ -53,5 +53,6 @@ export interface TranslationResult {
   type: 'image';
   cost?: string | number;
   usage?: TokenUsage;
+  detectedLang?: string;
   error?: string;
 }

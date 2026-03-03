@@ -11,6 +11,23 @@ const GOOGLE_PRICING: Record<string, { input: number; output: number }> = {
   'gemini-2.5-flash-image':         { input: 0.30, output: 30.00 },
 };
 
+async function detectLanguage(ai: InstanceType<typeof GoogleGenAI>, base64Data: string, mimeType: string): Promise<string> {
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { inlineData: { data: base64Data, mimeType } },
+          { text: 'What language is the text in this image written in? Reply with ONLY the language name in English (e.g. "French", "Japanese", "Arabic"). If multiple languages, reply with the dominant one.' },
+        ],
+      },
+    ],
+  });
+  const raw = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+  return raw.replace(/[."']/g, '').trim() || 'Unknown';
+}
+
 function estimateGoogleCost(modelId: string, promptTokens: number, completionTokens: number): string | undefined {
   const pricing = GOOGLE_PRICING[modelId];
   if (!pricing) return undefined;
@@ -43,16 +60,29 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Missing required parameters' });
     }
 
-    const prompt = `You are an expert image translator. Translate EVERY single piece of text in this image ${
-      sourceLang !== 'Auto-detect' ? `from ${sourceLang} ` : ''
-    }to ${targetLang}. This includes titles, subtitles, body text, labels, small print, and background text. Return a new image that is visually identical to the original but with ALL text replaced by the translation. Preserve the original layout, fonts, colors, formatting, and positioning exactly. Do not leave any original text untranslated. Only change the language of the text.`;
+    const getAI = () => new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+
+    let detectedLang: string | undefined;
+    let resolvedSourceLang = sourceLang;
+    if (!sourceLang || sourceLang === 'Auto-detect') {
+      detectedLang = await detectLanguage(getAI(), base64Data, mimeType);
+      resolvedSourceLang = detectedLang;
+    }
+
+    const prompt = [
+      `Act as a document translator. Translate every piece of text in this image from ${resolvedSourceLang} to ${targetLang}.`,
+      'Preserve exactly: the original layout, colors, fonts, font sizes, positioning, and background.',
+      'Strictly modify ONLY the text — nothing else.',
+      'Do NOT add, remove, resize, or reposition any visual element.',
+      'Do NOT add watermarks, borders, annotations, or artifacts not in the original.',
+      'Do NOT leave any text untranslated, including small print, labels, and captions.',
+      'Return only the translated image.',
+    ].join(' ');
 
     let imageUrl = '';
 
     if (provider === 'google') {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
-
-      const response = await ai.models.generateContent({
+      const response = await getAI().models.generateContent({
         model: modelId,
         contents: [
           {
@@ -73,9 +103,20 @@ export default async function handler(req: any, res: any) {
         }
       });
 
+      const candidate = response.candidates?.[0];
+      const finishReason = candidate?.finishReason;
+      const blockReason = (response as any).promptFeedback?.blockReason;
+
+      if (blockReason) {
+        throw new Error(`Request blocked by Google safety filter: ${blockReason}`);
+      }
+
+      if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
+        throw new Error(`Model stopped with reason: ${finishReason}. The content may have been flagged.`);
+      }
+
       let foundImage = false;
-      
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
+      for (const part of candidate?.content?.parts || []) {
         if (part.inlineData) {
           imageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
           foundImage = true;
@@ -84,8 +125,12 @@ export default async function handler(req: any, res: any) {
       }
 
       if (!foundImage) {
-        console.error('Model returned parts:', JSON.stringify(response.candidates?.[0]?.content?.parts, null, 2));
-        throw new Error('No image returned from the model. The model might have returned text instead.');
+        console.error('Google full response:', JSON.stringify({
+          candidates: response.candidates,
+          promptFeedback: (response as any).promptFeedback,
+          usageMetadata: (response as any).usageMetadata,
+        }, null, 2));
+        throw new Error(`No image in response (finishReason: ${finishReason ?? 'none'}). The model may have refused or returned text only.`);
       }
 
       const usage = (response as any).usageMetadata;
@@ -94,6 +139,7 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({
         imageUrl,
+        detectedLang,
         cost: estimateGoogleCost(modelId, promptTokens, completionTokens) ?? 'Free tier',
         usage: {
           promptTokens,
@@ -174,6 +220,7 @@ export default async function handler(req: any, res: any) {
 
       return res.status(200).json({
         imageUrl,
+        detectedLang,
         cost: cost != null ? Number(cost).toFixed(5) : undefined,
         usage: {
           promptTokens: usage?.prompt_tokens ?? 0,
