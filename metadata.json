@@ -1,0 +1,5 @@
+{
+  "name": "Image Translator",
+  "description": "Translate text within images while preserving layout and formatting.",
+  "requestFramePermissions": []
+}
