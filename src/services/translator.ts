@@ -2,6 +2,18 @@ import { Model, TranslationResult } from './models';
 
 export type { TranslationResult };
 
+let authToken = '';
+
+export function setAuthToken(token: string) {
+  authToken = token;
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+  return headers;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -19,7 +31,7 @@ export async function detectLanguage(file: File): Promise<string> {
 
   const response = await fetch('/api/detect', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ base64Data, mimeType: file.type }),
   });
 
@@ -42,7 +54,7 @@ export async function translateImage(
 
     const response = await fetch('/api/translate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({
         base64Data,
         mimeType: file.type,

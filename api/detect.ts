@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { checkAuth } from './_auth.ts';
 
 export const config = {
   maxDuration: 15,
@@ -10,7 +11,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
 
   if (req.method === 'OPTIONS') {
@@ -20,6 +21,10 @@ export default async function handler(req: any, res: any) {
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!checkAuth(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   try {

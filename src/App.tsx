@@ -1,8 +1,8 @@
-import { ArrowRight, Check, ChevronDown, Download, Image as ImageIcon, Loader2, Maximize2, Upload, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Download, Image as ImageIcon, Loader2, Lock, LogOut, Maximize2, Upload, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
+import React, { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { MODELS } from './services/models';
-import { detectLanguage, translateImage, TranslationResult } from './services/translator';
+import { detectLanguage, setAuthToken, translateImage, TranslationResult } from './services/translator';
 
 
 const LANGUAGES = [
@@ -10,7 +10,80 @@ const LANGUAGES = [
   'Portuguese', 'Chinese', 'Japanese', 'Korean', 'Arabic'
 ];
 
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+
+      if (res.ok) {
+        localStorage.setItem('auth_token', password);
+        setAuthToken(password);
+        onLogin();
+      } else {
+        setError('Invalid password');
+      }
+    } catch {
+      setError('Connection failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-100 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-sm"
+      >
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-neutral-200 p-8">
+          <div className="flex justify-center mb-6">
+            <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center">
+              <Lock size={22} />
+            </div>
+          </div>
+          <h1 className="text-lg font-semibold text-center mb-1">Image Translator</h1>
+          <p className="text-sm text-neutral-400 text-center mb-6">Enter the access password</p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            autoFocus
+            className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 mb-3"
+          />
+          {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
+          <button
+            type="submit"
+            disabled={!password || loading}
+            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-neutral-200 disabled:text-neutral-400 text-white rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Enter'}
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [authed, setAuthed] = useState(() => {
+    const token = localStorage.getItem('auth_token');
+    if (token) setAuthToken(token);
+    return !!token;
+  });
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceLang, setSourceLang] = useState('Auto-detect');
@@ -137,10 +210,25 @@ export default function App() {
 
   const activeResult = results.find(r => r.modelId === activeTabId) || results[0];
 
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    setAuthToken('');
+    setAuthed(false);
+  };
+
+  if (!authed) {
+    return <LoginScreen onLogin={() => setAuthed(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-neutral-100 text-neutral-900 font-sans p-4 flex flex-col">
       <div className="max-w-[1600px] mx-auto w-full h-full flex flex-col gap-6">
-        
+        <div className="flex justify-end">
+          <button onClick={handleLogout} className="text-neutral-400 hover:text-neutral-600 p-1.5 rounded-lg hover:bg-white transition-colors" title="Logout">
+            <LogOut size={16} />
+          </button>
+        </div>
+
         {/* Main Two-Column Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[700px]">
           
