@@ -116,10 +116,6 @@ export default async function handler(req: any, res: any) {
         throw new Error(`Request blocked by Google safety filter: ${blockReason}`);
       }
 
-      if (finishReason && !['STOP', 'MAX_TOKENS'].includes(finishReason)) {
-        throw new Error(`Model stopped with reason: ${finishReason}. The content may have been flagged.`);
-      }
-
       let foundImage = false;
       for (const part of candidate?.content?.parts || []) {
         if (part.inlineData) {
