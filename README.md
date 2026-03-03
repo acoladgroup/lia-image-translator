@@ -8,29 +8,42 @@ Translate text in images using AI models (Google Gemini, OpenRouter/GPT).
 
 ## Run Locally
 
-**Prerequisites:** Node.js, pnpm, [Vercel CLI](https://vercel.com/docs/cli)
+**Prerequisites:** Node.js, pnpm
 
 1. Install dependencies:
    ```bash
    pnpm install
    ```
 
-2. Set API keys in `.env.local`:
+2. Create `.env` (or `.env.local`) with your API keys:
    ```
    GEMINI_API_KEY=your-key
    OPENROUTER_API_KEY=your-key
    ```
 
-3. Link to a Vercel project (first time only):
+3. Start the dev server:
    ```bash
-   npx vercel link
+   pnpm dev:server
    ```
+   Runs the Express server with Vite at http://localhost:3000 (frontend + API).
 
-4. Start the dev server:
-   ```bash
-   npx vercel dev
-   ```
-   This runs the Vite frontend **and** the `/api/translate` serverless function locally at http://localhost:3000.
+   **Alternative (Vercel CLI):** `npx vercel dev` if you have the Vercel CLI installed.
+
+## Deploy to Railway
+
+1. Push your code to GitHub.
+
+2. Create a new project at [railway.app](https://railway.app) and connect your repo.
+
+3. Add environment variables in the Railway dashboard:
+   - `GEMINI_API_KEY`
+   - `OPENROUTER_API_KEY`
+
+4. Set the build and start commands in Railway (Settings → Build):
+   - **Build:** `pnpm install && pnpm build`
+   - **Start:** `pnpm start`
+
+5. Deploy. Railway builds the frontend, then runs the Express server. No timeout limits.
 
 ## Deploy to Vercel
 
@@ -42,4 +55,4 @@ Translate text in images using AI models (Google Gemini, OpenRouter/GPT).
    - `GEMINI_API_KEY`
    - `OPENROUTER_API_KEY`
 
-4. Deploy. Vercel builds the frontend from `dist/` and serves `api/translate.ts` as a serverless function.
+4. Deploy. Vercel builds the frontend from `dist/` and serves `api/translate.ts` as a serverless function (60s timeout on Hobby plan).
