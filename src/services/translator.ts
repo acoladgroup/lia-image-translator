@@ -3,9 +3,23 @@ import { Model, TranslationResult } from './models';
 export type { TranslationResult };
 
 let authToken = '';
+let onAuthExpired: (() => void) | null = null;
 
 export function setAuthToken(token: string) {
   authToken = token;
+}
+
+export function setOnAuthExpired(cb: () => void) {
+  onAuthExpired = cb;
+}
+
+function handleResponse(response: Response) {
+  if (response.status === 401) {
+    localStorage.removeItem('auth_token');
+    authToken = '';
+    onAuthExpired?.();
+    throw new Error('Session expired — please log in again.');
+  }
 }
 
 function authHeaders(): Record<string, string> {
@@ -34,6 +48,8 @@ export async function detectLanguage(file: File): Promise<string> {
     headers: authHeaders(),
     body: JSON.stringify({ base64Data, mimeType: file.type }),
   });
+
+  handleResponse(response);
 
   if (!response.ok) {
     throw new Error('Language detection failed');
@@ -64,6 +80,8 @@ export async function translateImage(
         provider: model.provider,
       }),
     });
+
+    handleResponse(response);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

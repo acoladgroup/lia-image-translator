@@ -2,7 +2,7 @@ import { ArrowRight, Check, ChevronDown, Download, Image as ImageIcon, Loader2, 
 import { AnimatePresence, motion } from 'motion/react';
 import React, { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { MODELS } from './services/models';
-import { detectLanguage, setAuthToken, translateImage, TranslationResult } from './services/translator';
+import { detectLanguage, setAuthToken, setOnAuthExpired, translateImage, TranslationResult } from './services/translator';
 
 
 const LANGUAGES = [
@@ -84,6 +84,10 @@ export default function App() {
     if (token) setAuthToken(token);
     return !!token;
   });
+
+  useEffect(() => {
+    setOnAuthExpired(() => setAuthed(false));
+  }, []);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sourceLang, setSourceLang] = useState('Auto-detect');

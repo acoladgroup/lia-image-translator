@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import { checkAuth } from './_auth.ts';
 
 export const config = {
@@ -76,48 +76,75 @@ export default async function handler(req: any, res: any) {
 
     const prompt = [
       `Act as a document translator. Translate every piece of text in this image from ${resolvedSourceLang} to ${targetLang}.`,
-      'Preserve exactly: the original layout, colors, fonts, font sizes, positioning, and background.',
+      'Translate ALL text: printed, handwritten, typed, stamped, watermarked, and any other visible text.',
+      'Include titles, headers, footers, labels, captions, small print, annotations, form fields, and margin notes.',
+      'Preserve exactly: the original layout, colors, fonts, font sizes, positioning, background, and image content.',
       'Strictly modify ONLY the text — nothing else.',
-      'Do NOT add, remove, resize, or reposition any visual element.',
-      'Do NOT add watermarks, borders, annotations, or artifacts not in the original.',
-      'Do NOT leave any text untranslated, including small print, labels, and captions.',
+      'Do NOT add any element, text, label, or decoration that does not exist in the original image.',
+      'Do NOT remove, resize, reposition, or alter any non-text visual element.',
+      'Do NOT add watermarks, borders, page numbers, or artifacts not in the original.',
+      'Do NOT invent, add, or generate any text that is not visible in the original image.',
+      'If a word is illegible, keep the original as-is rather than guessing.',
       'Return only the translated image.',
     ].join(' ');
 
     let imageUrl = '';
 
     if (provider === 'google') {
-      const response = await getAI().models.generateContent({
-        model: modelId,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  data: base64Data,
-                  mimeType: mimeType,
-                },
-              },
-              { text: prompt },
-            ],
+      const ai = getAI();
+      const contentParts = [
+        { inlineData: { data: base64Data, mimeType } },
+        { text: prompt },
+      ];
+
+      const attempts = [
+        { modalities: ["TEXT", "IMAGE"], promptText: prompt },
+        { modalities: ["IMAGE"], promptText: `Translate all text (printed and handwritten) in this image from ${resolvedSourceLang} to ${targetLang}. Keep the layout identical. Do not add anything not in the original. Return only the translated image.` },
+      ];
+
+      let response: any = null;
+      let lastError = '';
+
+      for (const attempt of attempts) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelId,
+            contents: [{ role: 'user', parts: [contentParts[0], { text: attempt.promptText }] }],
+            config: {
+              responseModalities: attempt.modalities,
+              safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              ],
+            },
+          });
+
+          const blockReason = (response as any).promptFeedback?.blockReason;
+          if (blockReason) {
+            lastError = `Request blocked by Google safety filter: ${blockReason}`;
+            response = null;
+            continue;
           }
-        ],
-        config: {
-          responseModalities: ["IMAGE"],
+
+          const parts = response.candidates?.[0]?.content?.parts || [];
+          if (parts.some((p: any) => p.inlineData)) break;
+
+          lastError = `No image (finishReason: ${response.candidates?.[0]?.finishReason ?? 'none'})`;
+          response = null;
+        } catch (e: any) {
+          lastError = e.message;
+          response = null;
         }
-      });
+      }
 
-      const candidate = response.candidates?.[0];
-      const finishReason = candidate?.finishReason;
-      const blockReason = (response as any).promptFeedback?.blockReason;
-
-      if (blockReason) {
-        throw new Error(`Request blocked by Google safety filter: ${blockReason}`);
+      if (!response) {
+        throw new Error(`Failed after ${attempts.length} attempts: ${lastError}`);
       }
 
       let foundImage = false;
-      for (const part of candidate?.content?.parts || []) {
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
           imageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
           foundImage = true;
@@ -126,12 +153,7 @@ export default async function handler(req: any, res: any) {
       }
 
       if (!foundImage) {
-        console.error('Google full response:', JSON.stringify({
-          candidates: response.candidates,
-          promptFeedback: (response as any).promptFeedback,
-          usageMetadata: (response as any).usageMetadata,
-        }, null, 2));
-        throw new Error(`No image in response (finishReason: ${finishReason ?? 'none'}). The model may have refused or returned text only.`);
+        throw new Error('No image in response after retries. The model may not support this content.');
       }
 
       const usage = (response as any).usageMetadata;
