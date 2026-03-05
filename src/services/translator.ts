@@ -100,6 +100,8 @@ export async function translateImage(
       content: responseData.imageUrl,
       type: 'image',
       cost: responseData.cost,
+      inputCost: responseData.inputCost,
+      outputCost: responseData.outputCost,
       usage: responseData.usage,
       detectedLang: responseData.detectedLang,
     };

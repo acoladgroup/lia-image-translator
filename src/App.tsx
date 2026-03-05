@@ -1,4 +1,4 @@
-import { ArrowRight, Check, ChevronDown, Download, Image as ImageIcon, Loader2, Lock, LogOut, Maximize2, Upload, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Copy, Download, Image as ImageIcon, Loader2, Lock, LogOut, Maximize2, Upload, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import React, { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { MODELS } from './services/models';
@@ -74,6 +74,53 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           </button>
         </form>
       </motion.div>
+    </div>
+  );
+}
+
+function CostBar({ result }: { result: TranslationResult }) {
+  const [copied, setCopied] = useState(false);
+  const isGoogle = typeof result.inputCost !== 'undefined' && typeof result.outputCost !== 'undefined';
+
+  const copyText = isGoogle && result.usage
+    ? `in ${result.usage.promptTokens} tok ($${result.inputCost}) + out ${result.usage.completionTokens} tok ($${result.outputCost}) = $${result.cost}`
+    : result.cost && result.cost !== 'Free tier'
+      ? `$${result.cost}`
+      : 'Free';
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(copyText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="mb-1.5 px-3 py-1.5 bg-neutral-50 border border-neutral-100 rounded-lg flex items-center justify-between gap-3 shrink-0">
+      <div className="flex items-center gap-3 text-[11px] text-neutral-500 font-mono flex-wrap">
+        {isGoogle && result.usage ? (
+          <>
+            <span><span className="text-neutral-400">in</span> {result.usage.promptTokens.toLocaleString()} tok <span className="text-neutral-300 mx-1">·</span> <span className="text-neutral-600">${result.inputCost}</span></span>
+            <span className="text-neutral-300">+</span>
+            <span><span className="text-neutral-400">out</span> {result.usage.completionTokens.toLocaleString()} tok <span className="text-neutral-300 mx-1">·</span> <span className="text-neutral-600">${result.outputCost}</span></span>
+            <span className="text-neutral-300">=</span>
+            <span className="text-neutral-800 font-semibold">${result.cost}</span>
+          </>
+        ) : (
+          <span className="text-neutral-800 font-semibold">
+            {result.cost === 'Free tier' ? 'Free' : `$${result.cost}`}
+            {result.usage && <span className="text-neutral-400 font-normal ml-2">{result.usage.totalTokens.toLocaleString()} tok</span>}
+          </span>
+        )}
+      </div>
+      <button
+        onClick={handleCopy}
+        className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-700 transition-colors shrink-0"
+        title="Copy cost breakdown"
+      >
+        {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+        <span>{copied ? 'Copied' : 'Copy'}</span>
+      </button>
     </div>
   );
 }
@@ -229,7 +276,7 @@ export default function App() {
   return (
     <div className="h-screen overflow-hidden bg-neutral-50 text-neutral-900 font-sans flex flex-col">
       {/* Toolbar — centered controls, connected to content */}
-      <div className="bg-white border-b border-neutral-200 px-4 py-2">
+      <div className="bg-white border-b border-neutral-200 px-4 py-2 relative">
         <div className="max-w-[1600px] mx-auto flex items-center justify-center gap-2.5">
           <div className="relative">
             <select
@@ -376,6 +423,7 @@ export default function App() {
                 MODELS.filter(m => selectedModelIds.includes(m.id) || results.some(r => r.modelId === m.id)).map((model) => {
                   const result = results.find(r => r.modelId === model.id);
                   const isLoading = loadingModelIds.has(model.id);
+                  const isGoogle = model.provider === 'google';
                   return (
                     <button
                       key={model.id}
@@ -391,11 +439,10 @@ export default function App() {
                       {!isLoading && result?.error && <div className="w-1.5 h-1.5 rounded-full bg-red-500" />}
                       <span className="flex flex-col items-start">
                         <span>{model.name}</span>
-                        {result && !result.error && (result.cost || result.usage) && (
+                        {result && !result.error && (result.cost || result.detectedLang) && (
                           <span className={`text-[9px] font-normal tracking-wide ${activeTabId === model.id ? 'text-indigo-400' : 'text-neutral-400'}`}>
-                            {result.detectedLang && `${result.detectedLang} · `}
+                            {result.detectedLang && `${result.detectedLang}${result.cost ? ' · ' : ''}`}
                             {result.cost && (result.cost === 'Free tier' ? 'Free' : `$${result.cost}`)}
-                            {result.usage && ` · ${result.usage.totalTokens.toLocaleString()} tok`}
                           </span>
                         )}
                       </span>
@@ -431,6 +478,10 @@ export default function App() {
                     transition={{ duration: 0.15 }}
                     className="flex-1 flex flex-col h-full relative group min-h-0"
                   >
+                    {!activeResult.error && (activeResult.usage || activeResult.cost) && (
+                      <CostBar result={activeResult} />
+                    )}
+
                     {activeResult.error ? (
                       <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-red-50/50 rounded-lg border border-red-100">
                         <X size={20} className="text-red-400 mb-1" />

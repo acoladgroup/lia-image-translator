@@ -52,6 +52,8 @@ export interface TranslationResult {
   content: string; // Base64 image
   type: 'image';
   cost?: string | number;
+  inputCost?: string | number;
+  outputCost?: string | number;
   usage?: TokenUsage;
   detectedLang?: string;
   error?: string;

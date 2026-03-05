@@ -1,4 +1,4 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
+import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
 import { checkAuth } from './_auth.ts';
 
 export const config = {
@@ -6,10 +6,11 @@ export const config = {
 };
 
 // Pricing per million tokens (USD) — update when Google changes prices
-const GOOGLE_PRICING: Record<string, { input: number; output: number }> = {
-  'gemini-3.1-flash-image-preview': { input: 0.50, output: 60.00 },
-  'gemini-3-pro-image-preview':     { input: 2.00, output: 120.00 },
-  'gemini-2.5-flash-image':         { input: 0.30, output: 30.00 },
+// outputImage: image generation tokens rate; outputText: same as base model text output rate
+const GOOGLE_PRICING: Record<string, { input: number; outputText: number; outputImage: number }> = {
+  'gemini-3.1-flash-image-preview': { input: 0.50, outputText: 3.00,  outputImage: 60.00  },
+  'gemini-3-pro-image-preview':     { input: 2.00, outputText: 12.00, outputImage: 120.00 },
+  'gemini-2.5-flash-image':         { input: 0.30, outputText: 3.50,  outputImage: 30.00  },
 };
 
 async function detectLanguage(ai: InstanceType<typeof GoogleGenAI>, base64Data: string, mimeType: string): Promise<string> {
@@ -29,11 +30,17 @@ async function detectLanguage(ai: InstanceType<typeof GoogleGenAI>, base64Data: 
   return raw.replace(/[."']/g, '').trim() || 'Unknown';
 }
 
-function estimateGoogleCost(modelId: string, promptTokens: number, completionTokens: number): string | undefined {
+function estimateGoogleCost(
+  modelId: string,
+  promptTokens: number,
+  completionTokens: number
+): { inputCost: number; outputCost: number; totalCost: number } | undefined {
   const pricing = GOOGLE_PRICING[modelId];
   if (!pricing) return undefined;
-  const cost = (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000;
-  return cost.toFixed(5);
+  const inputCost = (promptTokens * pricing.input) / 1_000_000;
+  const outputCost = (completionTokens * pricing.outputImage) / 1_000_000;
+  const totalCost = inputCost + outputCost;
+  return { inputCost, outputCost, totalCost };
 }
 
 export default async function handler(req: any, res: any) {
@@ -75,17 +82,12 @@ export default async function handler(req: any, res: any) {
     }
 
     const prompt = [
-      `Act as a document translator. Translate every piece of text in this image from ${resolvedSourceLang} to ${targetLang}.`,
-      'Translate ALL text: printed, handwritten, typed, stamped, watermarked, and any other visible text.',
-      'Include titles, headers, footers, labels, captions, small print, annotations, form fields, and margin notes.',
-      'Preserve exactly: the original layout, colors, fonts, font sizes, positioning, background, and image content.',
-      'Strictly modify ONLY the text — nothing else.',
-      'Do NOT add any element, text, label, or decoration that does not exist in the original image.',
-      'Do NOT remove, resize, reposition, or alter any non-text visual element.',
-      'Do NOT add watermarks, borders, page numbers, or artifacts not in the original.',
-      'Do NOT invent, add, or generate any text that is not visible in the original image.',
-      'If a word is illegible, keep the original as-is rather than guessing.',
-      'Return only the translated image.',
+      `Generate a new version of this image where every piece of visible text has been translated from ${resolvedSourceLang} to ${targetLang}.`,
+      'Translate all text regardless of type: printed, handwritten, typed, stamped, watermarked, titles, headers, labels, captions, footnotes, form fields, and margin notes.',
+      'Keep the entire visual layout exactly as-is: same background, colors, fonts, font sizes, positions, and all non-text elements.',
+      'Change only the text content to its translation — everything else stays identical.',
+      'If a word is illegible, keep it as-is.',
+      'Output only the translated image.',
     ].join(' ');
 
     let imageUrl = '';
@@ -99,7 +101,8 @@ export default async function handler(req: any, res: any) {
 
       const attempts = [
         { modalities: ["TEXT", "IMAGE"], promptText: prompt },
-        { modalities: ["IMAGE"], promptText: `Translate all text (printed and handwritten) in this image from ${resolvedSourceLang} to ${targetLang}. Keep the layout identical. Do not add anything not in the original. Return only the translated image.` },
+        { modalities: ["IMAGE"], promptText: `Generate this image with all text translated from ${resolvedSourceLang} to ${targetLang}. Preserve the original layout, background, and visual style exactly. Only the text changes.` },
+        { modalities: ["TEXT", "IMAGE"], promptText: `Translate text from ${resolvedSourceLang} to ${targetLang} in this image. Keep the layout unchanged.` },
       ];
 
       let response: any = null;
@@ -131,7 +134,9 @@ export default async function handler(req: any, res: any) {
           const parts = response.candidates?.[0]?.content?.parts || [];
           if (parts.some((p: any) => p.inlineData)) break;
 
+          const textFallback = response.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text ?? '';
           lastError = `No image (finishReason: ${response.candidates?.[0]?.finishReason ?? 'none'})`;
+          if (textFallback) console.warn(`[translate] Model returned text instead of image: ${textFallback.slice(0, 200)}`);
           response = null;
         } catch (e: any) {
           lastError = e.message;
@@ -159,11 +164,14 @@ export default async function handler(req: any, res: any) {
       const usage = (response as any).usageMetadata;
       const promptTokens = usage?.promptTokenCount ?? 0;
       const completionTokens = usage?.candidatesTokenCount ?? 0;
+      const costBreakdown = estimateGoogleCost(modelId, promptTokens, completionTokens);
 
       return res.status(200).json({
         imageUrl,
         detectedLang,
-        cost: estimateGoogleCost(modelId, promptTokens, completionTokens) ?? 'Free tier',
+        cost: costBreakdown ? costBreakdown.totalCost.toFixed(5) : 'Free tier',
+        inputCost: costBreakdown ? costBreakdown.inputCost.toFixed(5) : undefined,
+        outputCost: costBreakdown ? costBreakdown.outputCost.toFixed(5) : undefined,
         usage: {
           promptTokens,
           completionTokens,
