@@ -43,16 +43,36 @@ export default async function handler(req: any, res: any) {
           role: 'user',
           parts: [
             { inlineData: { data: base64Data, mimeType } },
-            { text: 'What language is the text in this image written in? Reply with ONLY the language name in English (e.g. "French", "Japanese", "Arabic"). If multiple languages, reply with the dominant one.' },
+            {
+              text: [
+                'Analyse this image and reply with a single JSON object (no markdown, no extra text) with exactly these fields:',
+                '  "language": the dominant language of the text in English (e.g. "French"), or "None" if there is no text,',
+                '  "quality": one of "good", "poor", or "none" — good means text is clearly legible and the image is suitable for translation; poor means the image has issues that will likely hurt translation quality (blurry, low-res, heavily obscured, skewed, overexposed, etc.); none means there is no translatable text,',
+                '  "reason": a short human-readable explanation only when quality is "poor" or "none", otherwise null.',
+                'Example: {"language":"Japanese","quality":"good","reason":null}',
+              ].join(' '),
+            },
           ],
         },
       ],
     });
 
     const raw = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
-    const language = raw.replace(/[."']/g, '').trim() || 'Unknown';
 
-    return res.status(200).json({ language });
+    let language = 'Unknown';
+    let quality: 'good' | 'poor' | 'none' = 'good';
+    let reason: string | null = null;
+
+    try {
+      const json = JSON.parse(raw.replace(/```json|```/g, '').trim());
+      language = String(json.language || 'Unknown').replace(/[."']/g, '').trim() || 'Unknown';
+      quality = ['good', 'poor', 'none'].includes(json.quality) ? json.quality : 'good';
+      reason = json.reason ?? null;
+    } catch {
+      language = raw.replace(/[."']/g, '').trim() || 'Unknown';
+    }
+
+    return res.status(200).json({ language, quality, reason });
   } catch (error: any) {
     console.error('Detection error:', error);
     return res.status(500).json({ error: error.message || 'Failed to detect language' });

@@ -2,7 +2,7 @@ import { ArrowRight, Check, ChevronDown, Copy, Download, Image as ImageIcon, Loa
 import { AnimatePresence, motion } from 'motion/react';
 import React, { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
 import { MODELS } from './services/models';
-import { detectLanguage, setAuthToken, setOnAuthExpired, translateImage, TranslationResult } from './services/translator';
+import { detectLanguage, DetectResult, setAuthToken, setOnAuthExpired, translateImage, TranslationResult } from './services/translator';
 
 
 const LANGUAGES = [
@@ -146,6 +146,7 @@ export default function App() {
   const [fullscreenResult, setFullscreenResult] = useState<TranslationResult | null>(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [detectedLang, setDetectedLang] = useState<string | null>(null);
+  const [imageQuality, setImageQuality] = useState<DetectResult | null>(null);
   const [isDetecting, setIsDetecting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -186,11 +187,15 @@ export default function App() {
     setResults([]);
     setError(null);
     setDetectedLang(null);
+    setImageQuality(null);
 
     setIsDetecting(true);
     detectLanguage(selectedFile)
-      .then((lang) => setDetectedLang(lang))
-      .catch(() => setDetectedLang(null))
+      .then((result) => {
+        setDetectedLang(result.language);
+        setImageQuality(result);
+      })
+      .catch(() => { setDetectedLang(null); setImageQuality(null); })
       .finally(() => setIsDetecting(false));
   };
 
@@ -373,14 +378,31 @@ export default function App() {
           <div className="bg-white rounded-lg border border-neutral-200 overflow-hidden flex flex-col min-h-0">
             <div className="px-3 py-1.5 border-b border-neutral-100 flex justify-between items-center shrink-0">
               <h2 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Source</h2>
-              {file && (
-                <button
-                  onClick={() => { setFile(null); setPreviewUrl(null); setResults([]); setDetectedLang(null); }}
-                  className="text-neutral-400 hover:text-neutral-600 p-0.5 rounded hover:bg-neutral-100 transition-colors"
-                >
-                  <X size={13} />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {isDetecting && <span className="text-[10px] text-neutral-400">Analysing...</span>}
+                {!isDetecting && imageQuality && (
+                  <span
+                    title={imageQuality.reason ?? undefined}
+                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                      imageQuality.quality === 'good'
+                        ? 'bg-green-50 text-green-600'
+                        : imageQuality.quality === 'poor'
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-neutral-100 text-neutral-400'
+                    }`}
+                  >
+                    {imageQuality.quality === 'good' ? 'Good quality' : imageQuality.quality === 'poor' ? `Poor quality${imageQuality.reason ? ` — ${imageQuality.reason}` : ''}` : 'No text'}
+                  </span>
+                )}
+                {file && (
+                  <button
+                    onClick={() => { setFile(null); setPreviewUrl(null); setResults([]); setDetectedLang(null); setImageQuality(null); }}
+                    className="text-neutral-400 hover:text-neutral-600 p-0.5 rounded hover:bg-neutral-100 transition-colors"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex-1 p-2 flex flex-col min-h-0">

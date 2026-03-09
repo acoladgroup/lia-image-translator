@@ -40,7 +40,13 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export async function detectLanguage(file: File): Promise<string> {
+export interface DetectResult {
+  language: string;
+  quality: 'good' | 'poor' | 'none';
+  reason: string | null;
+}
+
+export async function detectLanguage(file: File): Promise<DetectResult> {
   const base64Data = await fileToBase64(file);
 
   const response = await fetch('/api/detect', {
@@ -56,7 +62,11 @@ export async function detectLanguage(file: File): Promise<string> {
   }
 
   const data = await response.json();
-  return data.language || 'Unknown';
+  return {
+    language: data.language || 'Unknown',
+    quality: data.quality || 'good',
+    reason: data.reason ?? null,
+  };
 }
 
 export async function translateImage(
